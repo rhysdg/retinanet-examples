@@ -21,6 +21,19 @@ cmake -DCMAKE_CUDA_FLAGS="--expt-extended-lambda -std=c++14" ..
 make
 ```
 
+
+### Jetpack
+Make sure to clone branch 20.03 as below for compatibility
+
+```bash
+git clone --branch 20.03 https://github.com/NVIDIA/retinanet-examples.git
+
+mkdir build && cd build
+cmake -DCMAKE_CUDA_FLAGS="--expt-extended-lambda -std=c++14" ..
+make
+```
+
+
 ### Windows
 ```bash
 mkdir build && cd build
@@ -49,6 +62,23 @@ Run a test inference (default output if none provided: "detections.png"):
 ```bash
 infer{.exe} engine.plan image.jpg [<OUTPUT>.png]
 ```
+
+Extra functionality has been added with this fork, and all of the follwing has been tested with bot a Xavier NX and an AGX Xavier. First of all go ahead and use infervideo as follows:
+
+```bash
+infervideo{.exe} engine.plan input.mov output.mp4 label_map.txt
+```
+
+The resulting video will have both the object class and confidence written above each bounding box per frame, given the correct label map is provided.
+
+Furthermore for an example of realtime usage take a look at an example using a Zed2 camera as follows:
+
+```bash
+infervideozed{.exe} engine.plan label_map.txt
+```
+
+Once again the resulting window will display an object's class and confidence per bounding boxes. Further to this find FPS and inference speed in ms in the top left corner of the window.
+
 
 Note: make sure the TensorRT, CuDNN and OpenCV libraries are available in your environment and path.
 
