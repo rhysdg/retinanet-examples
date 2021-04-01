@@ -77,7 +77,7 @@ Furthermore for an example of realtime usage take a look at an example using a Z
 infervideozed{.exe} engine.plan label_map.txt
 ```
 
-Once again the resulting window will display an object's class and confidence per bounding boxes. Further to this find FPS and inference speed in ms in the top left corner of the window.
+Once again the resulting window will display an object's class and confidence per bounding boxes. Further to this find FPS and inference speed in ms in the top left corner of the window. Note that the example ensures that the Zed2's left camera is used but this example can easily be adapted to a monocular UVC camera.
 
 
 Note: make sure the TensorRT, CuDNN and OpenCV libraries are available in your environment and path.
