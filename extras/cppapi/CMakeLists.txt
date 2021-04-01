@@ -44,4 +44,8 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
   add_executable(infervideo infervideo.cpp)
   include_directories(${OpenCV_INCLUDE_DIRS})
   target_link_libraries(infervideo PRIVATE retinanet ${OpenCV_LIBS} cuda ${CUDA_LIBRARIES})
+  
+  add_executable(infervideozed infervideozed.cpp)
+  include_directories(${OpenCV_INCLUDE_DIRS})
+  target_link_libraries(infervideozed PRIVATE retinanet ${OpenCV_LIBS} cuda ${CUDA_LIBRARIES})
 endif()

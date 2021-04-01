@@ -1,15 +1,19 @@
 #include <iostream>
 #include <stdexcept>
+#include <sstream>
 #include <fstream>
 #include <vector>
 #include <chrono>
-#include <string>
+#include <cmath>
+#include <math.h>
+#include <iomanip>
 
 #include <opencv2/opencv.hpp>
 #include <opencv2/opencv.hpp>
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include<boost/algorithm/string.hpp>
+#include <experimental/string_view>
 
 #include <cuda_runtime.h>
 #include "../../csrc/engine.h"
@@ -19,29 +23,30 @@ using namespace cv;
 using namespace boost::algorithm;
 
 int main(int argc, char *argv[]) {
-	if (argc != 5) {
-		cerr << "Usage: " << argv[0] << " engine.plan input.mov output.mp4 label_map.txt" << endl;
+    
+	if (argc != 3) {
+		cerr << "Usage: " << argv[0] << " engine.plan label_map.txt" << endl;
 		return 1;
 	}
     
-    // convert label map
+       // convert label map
     cout << "Loading label map..." << endl;
     std::string line;
     std::vector<std::string> mylist;   
     try
     {
-        std::ifstream f(argv[4]);
+        std::ifstream f(argv[2]);
 
         if(!f)
         {
-            std::cerr << "ERROR: Cannot open label file!" << std::endl;
+            std::cerr << "ERROR: Cannot open label text file!" << std::endl;
             exit(1);
         }
 
         while (std::getline(f,line))
         {
-            mylist.push_back(line);
-            std::cout << mylist.back() << std::endl;     
+            mylist.push_back(line); 
+            std::cout << mylist.back() << std::endl;  
         }
         
     }
@@ -50,29 +55,26 @@ int main(int argc, char *argv[]) {
         std::cerr << "Exception: '" << ex.what() << "'!" << std::endl;
         exit(1);
     }
-    
 
 	cout << "Loading engine..." << endl;
 	auto engine = retinanet::Engine(argv[1]);
-	VideoCapture src(argv[2]);
+	VideoCapture cap(0);
 
-	if (!src.isOpened()){
+	if (!cap.isOpened()){
 		cerr << "Could not read " << argv[2] << endl;
 		return 1;
 	}
-	
-	auto fh=src.get(CAP_PROP_FRAME_HEIGHT);
-	auto fw=src.get(CAP_PROP_FRAME_WIDTH);
-	auto fps=src.get(CAP_PROP_FPS);
-	auto nframes=src.get(CAP_PROP_FRAME_COUNT);
+    
+    // Set the video resolution to HD720 (2560*720)
+    cap.set(CAP_PROP_FRAME_WIDTH, 1280*2);
+    cap.set(CAP_PROP_FRAME_HEIGHT, 720);    
+    cap.set(CAP_PROP_FPS, 60);
 
-	VideoWriter sink;
-	sink.open(argv[3], 0x31637661, fps, Size(fw, fh));
 	Mat frame;
 	Mat resized_frame;
 	Mat inferred_frame;
 	int count=1;
-
+    
 	auto inputSize = engine.getInputSize();
 	// Create device buffers
 	void *data_d, *scores_d, *boxes_d, *classes_d;
@@ -96,16 +98,23 @@ int main(int argc, char *argv[]) {
 	int channels = 3;
 	vector<float> img;
 	vector<float> data (channels * inputSize[0] * inputSize[1]);
-
+    
+    //Begin fps counter
+    long frameCounter = 0;
+    std::time_t timeBegin = std::time(0);
+    int tick = 0;
+    std::string fps = "fps: ";
+    
 	while(1)
 	{
-		src >> frame;
+		cap >> frame;
 		if (frame.empty()){
 			cout << "Finished inference!" << endl;
 			break;
 		}
-
-		cv::resize(frame, resized_frame, Size(inputSize[1], inputSize[0]));
+        
+        frame = frame(cv::Rect(0, 0, frame.cols / 2, frame.rows));
+		cv::resize(frame, resized_frame, Size(inputSize[0],   inputSize[1]));
 		cv::Mat pixels;
 		resized_frame.convertTo(pixels, CV_32FC3, 1.0 / 255, 0);
 
@@ -118,11 +127,11 @@ int main(int argc, char *argv[]) {
 		}
 
 		// Copy image to device
+        auto start = std::chrono::high_resolution_clock::now();
 		size_t dataSize = data.size() * sizeof(float);
 		cudaMemcpy(data_d, data.data(), dataSize, cudaMemcpyHostToDevice);
 
 		//Do inference
-		cout << "Inferring on frame: " << count <<"/" << nframes << endl;
 		count++;
 		vector<void *> buffers = { data_d, scores_d, boxes_d, classes_d };
 		engine.infer(buffers);
@@ -130,10 +139,18 @@ int main(int argc, char *argv[]) {
 		cudaMemcpy(scores.get(), scores_d, sizeof(float) * num_det, cudaMemcpyDeviceToHost);
 		cudaMemcpy(boxes.get(), boxes_d, sizeof(float) * num_det * 4, cudaMemcpyDeviceToHost);
 		cudaMemcpy(classes.get(), classes_d, sizeof(float) * num_det, cudaMemcpyDeviceToHost);
+       
+        //Calculate inference time
+        auto elapsed = std::chrono::high_resolution_clock::now() - start;
+        long long milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
+     
+        std::stringstream strstream;
+        strstream <<  "Inference time: " << milliseconds;
+        std::string time=strstream.str();   
 
-		// Get back the bounding boxes
+        
+        // Get back the bounding boxes
 		for (int i = 0; i < num_det; i++) {
-			// Show results over confidence threshold
 			if (scores[i] >= 0.5f) {
 				float x1 = boxes[i*4+0];
 				float y1 = boxes[i*4+1];
@@ -141,7 +158,7 @@ int main(int argc, char *argv[]) {
 				float y2 = boxes[i*4+3];
 				int cls=classes[i];
                 auto score = round(scores[i]*100)/100;
-                 
+    
                 //Prepare class and score string
                 std::stringstream ss;
                 std::string classstr = mylist[classes[i]];
@@ -152,14 +169,32 @@ int main(int argc, char *argv[]) {
 				// Draw bounding box, score and class on image
 				cv::rectangle(resized_frame, Point(x1, y1), Point(x2, y2), cv::Scalar(blues[cls], greens[cls], reds[cls]));
                 cv::putText(resized_frame, s, cv::Point(x1, y1 -4), cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(255, 255, 255),0.75, cv::LINE_AA); 
-                
-			}
+            }
 		}
-		cv::resize(resized_frame, inferred_frame, Size(fw, fh));
-		sink.write(inferred_frame);
-	}
-	src.release();
-	sink.release();
+        
+        frameCounter++; 
+        std::time_t timeNow = std::time(0) - timeBegin;
+
+        if (timeNow - tick >= 1)
+        {
+            fps="fps: ";
+            tick++;
+            std::stringstream strstream;
+            strstream << frameCounter;
+            std::string fpsres=strstream.str();   
+            fps += fpsres;
+            frameCounter = 0;
+
+        } 
+        
+        cv::resize(resized_frame, inferred_frame, Size(640, 480));
+        cv::putText(inferred_frame, time, cv::Point(10, 15), cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(255, 255, 255),0.75, cv::LINE_AA); 
+        cv::putText(inferred_frame, fps, cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(255, 255, 255),0.75, cv::LINE_AA); 
+        cv::imshow("Retinanet - Resnet18", inferred_frame);
+        cv::waitKey(1);
+
+	} 
+	cap.release();
 	cudaFree(data_d);
 	cudaFree(scores_d);
 	cudaFree(boxes_d);
